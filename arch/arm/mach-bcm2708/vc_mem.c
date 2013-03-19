@@ -109,6 +109,50 @@ vc_mem_release(struct inode *inode, struct file *file)
 
 /****************************************************************************
 *
+*   vc_mem_access_mem
+*
+*   This routine does minimal checking (deliberate). It is used to extract
+*   the size of the videocore memory, and is also called by the kernel
+*   variant of AccessVideoCoreMemory from debug_sym.c
+*
+*   AccessVideoCoreMemory does the real checking.
+*
+***************************************************************************/
+
+int vc_mem_access_mem(int write_mem, void *buf, uint32_t vc_mem_addr,
+		      size_t num_bytes)
+{
+	uint8_t *map_addr;
+	size_t map_size;
+	size_t mem_offset;
+	unsigned long arm_phys_addr;
+
+	mem_offset = vc_mem_addr & ~PAGE_MASK;
+	arm_phys_addr = vc_mem_addr & PAGE_MASK;
+	arm_phys_addr += mm_vc_mem_phys_addr;
+	map_size = (mem_offset + num_bytes + PAGE_SIZE - 1) & PAGE_MASK;
+
+	map_addr = ioremap_nocache(arm_phys_addr, map_size);
+	if (map_addr == 0) {
+		pr_err("%s: ioremap( phys 0x%08lx, size 0x%08x ) failed\n",
+		       __func__, arm_phys_addr, map_size);
+		return -EPERM;
+	}
+
+	if (write_mem)
+		memcpy(map_addr + mem_offset, buf, num_bytes);
+	else
+		memcpy(buf, map_addr + mem_offset, num_bytes);
+
+	iounmap(map_addr);
+
+	return 0;
+}
+
+EXPORT_SYMBOL(vc_mem_access_mem);
+
+/****************************************************************************
+*
 *   vc_mem_get_size
 *
 ***************************************************************************/
@@ -142,6 +186,32 @@ vc_mem_get_current_size(void)
 }
 
 EXPORT_SYMBOL_GPL(vc_mem_get_current_size);
+
+/****************************************************************************
+*
+*   vc_mem_get_current_base
+*
+***************************************************************************/
+
+int
+vc_mem_get_current_base(void)
+{
+   return mm_vc_mem_base;
+}
+EXPORT_SYMBOL_GPL(vc_mem_get_current_base);
+
+/****************************************************************************
+*
+*   vc_mem_get_current_load
+*
+***************************************************************************/
+
+int
+vc_mem_get_current_load(void)
+{
+   return mm_vc_mem_base;
+}
+EXPORT_SYMBOL_GPL(vc_mem_get_current_load);
 
 /****************************************************************************
 *

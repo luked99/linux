@@ -30,6 +30,11 @@
 extern unsigned long mm_vc_mem_phys_addr;
 extern unsigned int  mm_vc_mem_size;
 extern int vc_mem_get_current_size( void );
+extern int vc_mem_get_current_base(void);
+extern int vc_mem_get_current_load(void);
+extern int vc_mem_access_mem(int write_mem, void *buf, uint32_t vc_mem_addr,
+				size_t num_bytes);
+
 #endif
 
 #endif  /* VC_MEM_H */
