@@ -13,6 +13,9 @@ vchiq-objs := \
    interface/vchiq_arm/vchiq_connected.o \
 
 EXTRA_CFLAGS += -DVCOS_VERIFY_BKPTS=1 -Idrivers/misc/vc04_services -DUSE_VCHIQ_ARM -D__VCCOREVER__=0x04000000
+ccflags-$(CONFIG_BCM2708_VCHIQ)  += -I"drivers/misc/vc04_services/interface/debug_sym"
+
+vchiq-objs += interface/debug_sym/debug_sym.o
 
 endif
 
