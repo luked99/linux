@@ -138,7 +138,7 @@ vchiq_platform_init(VCHIQ_STATE_T *state)
 	}
 
 	err = request_irq(VCHIQ_DOORBELL_IRQ, vchiq_doorbell_irq,
-		IRQF_IRQPOLL, "VCHIQ doorbell",
+		IRQF_IRQPOLL | IRQF_SHARED, "VCHIQ doorbell",
 		state);
 	if (err < 0) {
 		vchiq_log_error(vchiq_arm_log_level, "%s: failed to register "
