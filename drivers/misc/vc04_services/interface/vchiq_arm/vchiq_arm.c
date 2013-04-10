@@ -45,6 +45,7 @@
 #include <linux/semaphore.h>
 #include <linux/list.h>
 #include <linux/proc_fs.h>
+#include <linux/broadcom/vc_suspend.h>
 
 #include "vchiq_core.h"
 #include "vchiq_ioctl.h"
@@ -2220,8 +2221,6 @@ out:
 
 }
 
-
-
 VCHIQ_STATUS_T
 vchiq_use_internal(VCHIQ_STATE_T *state, VCHIQ_SERVICE_T *service,
 		enum USE_TYPE_E use_type)
@@ -2416,6 +2415,23 @@ out:
 	vchiq_log_trace(vchiq_susp_log_level, "%s exit %d", __func__, ret);
 	return ret;
 }
+
+VCHIQ_STATUS_T vc_suspend_use(struct device *dev)
+{
+	VCHIQ_STATE_T *state = vchiq_states[0];
+	VCHIQ_STATUS_T status = vchiq_use_internal(state, NULL, USE_TYPE_VCHIQ);
+	(void)dev;
+	return status;
+}
+EXPORT_SYMBOL(vc_suspend_use);
+
+void vc_suspend_release(struct device *dev)
+{
+	VCHIQ_STATE_T *state = vchiq_states[0];
+	(void)dev;
+	vchiq_release_internal(state, NULL);
+}
+EXPORT_SYMBOL(vc_suspend_release);
 
 void
 vchiq_on_remote_use(VCHIQ_STATE_T *state)
