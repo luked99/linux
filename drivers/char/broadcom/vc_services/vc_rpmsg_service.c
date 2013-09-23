@@ -365,23 +365,12 @@ static void service_cb(struct rpmsg_channel *rpdev, void *data, int len,
 	dev_dbg(dev, "%s: type=%d\n", __func__, hdr.type);
 
 	if (hdr.type == VC_SERVICE_MSG_OPEN_REPLY) {
-		struct VC_SERVICE_MSG_OPEN_REPLY_T msg;
-
 		if (client->state != CLIENT_OPENING) {
 			dev_warn(dev, "OPEN_REPLY in incorrect state %d\n",
 					client->state);
 			abort_client(client);
 			goto out;
 		}
-
-		if (len != sizeof(msg)) {
-			dev_warn(dev, "OPEN_REPLY message wrong size (%d != %zu)\n",
-					len, sizeof(msg));
-			abort_client(client);
-			goto out;
-		}
-
-		memcpy(&msg, data, len);
 		client->state = CLIENT_OPEN;
 
 	} else if (hdr.type == VC_SERVICE_MSG_RELEASE_REPLY) {
@@ -396,8 +385,8 @@ static void service_cb(struct rpmsg_channel *rpdev, void *data, int len,
 	} else if (hdr.type == VC_SERVICE_MSG_FATAL_ERROR) {
 		struct VC_SERVICE_MSG_FATAL_ERROR_T msg;
 
-		if (len != sizeof(msg)) {
-			dev_warn(dev, "FATAL_ERROR message wrong size (%d != %zu)\n",
+		if (len < sizeof(msg)) {
+			dev_warn(dev, "FATAL_ERROR message wrong size (%d < %zu)\n",
 					len, sizeof(msg));
 			abort_client(client);
 			goto out;
@@ -970,7 +959,7 @@ static void hostexport_cb(struct rpmsg_channel *rpdev, void *data, int len,
 	struct HOSTEXPORT_MSG_RESPONSE_T *msg;
 	int err;
 
-	if (len != sizeof(struct HOSTEXPORT_MSG_RESPONSE_T)) {
+	if (len < sizeof(struct HOSTEXPORT_MSG_RESPONSE_T)) {
 		dev_err(&rpdev->dev, "unexpected message length %d\n", len);
 		return;
 	}

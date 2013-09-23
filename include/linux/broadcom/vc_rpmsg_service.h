@@ -13,7 +13,7 @@
 /*
  * Latest vc_rpmsg_service protocol version supported by the kernel.
  */
-#define VC_RPMSG_SERVICE_VERSION 1
+#define VC_RPMSG_SERVICE_VERSION 2
 #define VC_RPMSG_SERVICE_VERSION_MIN 1
 
 /*
