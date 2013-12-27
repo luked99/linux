@@ -952,6 +952,8 @@ static int rpmsg_probe(struct virtio_device *vdev)
 	struct virtproc_info *vrp;
 	void *bufs_va;
 	int err = 0, i;
+	void *(*bufs_alloc)(struct virtio_device *vdev, size_t size) = NULL;
+	void (*bufs_free)(struct virtio_device *vdev, void *bufs) = NULL;
 
 	vrp = kzalloc(sizeof(*vrp), GFP_KERNEL);
 	if (!vrp)
@@ -973,9 +975,17 @@ static int rpmsg_probe(struct virtio_device *vdev)
 	vrp->svq = vqs[1];
 
 	/* allocate coherent memory for the buffers */
-	bufs_va = dma_alloc_coherent(vdev->dev.parent->parent,
-				RPMSG_TOTAL_BUF_SPACE,
-				&vrp->bufs_dma, GFP_KERNEL);
+	err = virtio_config_val(vdev, VIRTIO_RPMSG_F_BUFS_ALLOC,
+		offsetof(struct virtio_rpmsg_config, bufs_alloc),
+		&bufs_alloc);
+	if (!err && bufs_alloc) {
+		bufs_va = bufs_alloc(vdev, RPMSG_TOTAL_BUF_SPACE);
+	} else {
+		/* allocate coherent memory for the buffers */
+		bufs_va = dma_alloc_coherent(vdev->dev.parent->parent,
+			RPMSG_TOTAL_BUF_SPACE, &vrp->bufs_dma,
+			GFP_KERNEL);
+	}
 	if (!bufs_va) {
 		err = -ENOMEM;
 		goto vqs_del;
@@ -1027,8 +1037,17 @@ static int rpmsg_probe(struct virtio_device *vdev)
 	return 0;
 
 free_coherent:
-	dma_free_coherent(vdev->dev.parent->parent, RPMSG_TOTAL_BUF_SPACE,
-					bufs_va, vrp->bufs_dma);
+	err = virtio_config_val(vdev, VIRTIO_RPMSG_F_BUFS_ALLOC,
+			offsetof(struct virtio_rpmsg_config, bufs_free),
+			&bufs_free);
+	if (!err && bufs_free) {
+		bufs_free(vdev, bufs_va);
+	} else {
+		dma_free_coherent(vdev->dev.parent->parent,
+				  RPMSG_TOTAL_BUF_SPACE,
+				  bufs_va, vrp->bufs_dma);
+	}
+
 vqs_del:
 	vdev->config->del_vqs(vrp->vdev);
 free_vrp:
@@ -1046,6 +1065,7 @@ static int rpmsg_remove_device(struct device *dev, void *data)
 static void rpmsg_remove(struct virtio_device *vdev)
 {
 	struct virtproc_info *vrp = vdev->priv;
+	void (*bufs_free)(struct virtio_device *vdev, void *bufs) = NULL;
 	int ret;
 
 	vdev->config->reset(vdev);
@@ -1061,8 +1081,16 @@ static void rpmsg_remove(struct virtio_device *vdev)
 
 	vdev->config->del_vqs(vrp->vdev);
 
-	dma_free_coherent(vdev->dev.parent->parent, RPMSG_TOTAL_BUF_SPACE,
-					vrp->rbufs, vrp->bufs_dma);
+	ret = virtio_config_val(vdev, VIRTIO_RPMSG_F_BUFS_ALLOC,
+			offsetof(struct virtio_rpmsg_config, bufs_free),
+			&bufs_free);
+	if (!ret && bufs_free) {
+		bufs_free(vdev, vrp->rbufs);
+	} else {
+		dma_free_coherent(vdev->dev.parent->parent,
+				  RPMSG_TOTAL_BUF_SPACE,
+				  vrp->rbufs, vrp->bufs_dma);
+	}
 
 	kfree(vrp);
 }
@@ -1074,6 +1102,7 @@ static struct virtio_device_id id_table[] = {
 
 static unsigned int features[] = {
 	VIRTIO_RPMSG_F_NS,
+	VIRTIO_RPMSG_F_BUFS_ALLOC,
 };
 
 static struct virtio_driver virtio_ipc_driver = {

@@ -43,6 +43,13 @@
 
 /* The feature bitmap for virtio rpmsg */
 #define VIRTIO_RPMSG_F_NS	0 /* RP supports name service notifications */
+#define VIRTIO_RPMSG_F_BUFS_ALLOC 1 /* Device provides buffer alloc/free */
+
+struct virtio_device;
+struct virtio_rpmsg_config {
+	void *(*bufs_alloc)(struct virtio_device *vdev, size_t size);
+	void (*bufs_free)(struct virtio_device *vdev, void *bufs);
+};
 
 /**
  * struct rpmsg_hdr - common header for all rpmsg messages
