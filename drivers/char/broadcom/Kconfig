@@ -14,3 +14,14 @@ config BCM_VC_CMA
         help
           Helper for videocore CMA access.
 
+config BCM_VC_RPMSG
+	tristate "VideoCore rpmsg support"
+	depends on BRCM_CHAR_DRIVERS
+	select RPMSG
+	default n
+	help
+	  This enables VideoCore rpmsg support, which lets kernel
+	  drivers connect to services running on the VideoCore
+	  remote processor. This should be enabled on any platform
+	  that uses the VideoCore VPUs.
+
