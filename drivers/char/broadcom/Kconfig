@@ -25,3 +25,13 @@ config BCM_VC_RPMSG
 	  remote processor. This should be enabled on any platform
 	  that uses the VideoCore VPUs.
 
+config BCM_VC_RPMSG_SERVICES
+	tristate "VideoCore rpmsg services"
+	depends on BRCM_CHAR_DRIVERS
+	default n
+	help
+	  This driver exposes VideoCore services to userspace as
+	  char devices, including support for shared-memory buffers.
+	  This should be enabled on any platform that uses the
+	  VideoCore VPUs.
+
