@@ -24,15 +24,15 @@
 
 void vc_rpmsg_doorbell_signal_rx(void)
 {
-	writel((1<<VC_RPMSG_IPC_DOORBELL_HOST_RX_FROM_ARM),
-	       __io_address(ARM_0_BELL2));
+	pr_debug("%s\n", __func__);
+	writel(0, __io_address(VC_RPMSG_2835_TO_VC_BELL));
 }
 EXPORT_SYMBOL(vc_rpmsg_doorbell_signal_rx);
 
 void vc_rpmsg_doorbell_signal_tx(void)
 {
-	writel((1<<VC_RPMSG_IPC_DOORBELL_HOST_TX_FROM_ARM),
-	       __io_address(ARM_0_BELL2));
+	pr_debug("%s\n", __func__);
+	writel(0, __io_address(VC_RPMSG_2835_TO_VC_BELL));
 }
 EXPORT_SYMBOL(vc_rpmsg_doorbell_signal_tx);
 
@@ -41,11 +41,17 @@ void vc_rpmsg_doorbell_init(void)
 }
 EXPORT_SYMBOL(vc_rpmsg_doorbell_init);
 
-/* Read and clear the doorbell */
+/* Read and clear the doorbell. A status of 4 means it was rung.
+ * The lower bits indicate the 'owner' (which is not used).
+ *
+ * Because the interrupt is shared, and we cannot pass any bits
+ * across, we just pretend both RX and TX were signalled.
+ */
 unsigned vc_rpmsg_doorbell_status(void)
 {
-	uint32_t status = readl(__io_address(ARM_0_BELL0));
-	return status & VC_RPMSG_DOORBELL_MASK;
+	uint32_t status = readl(__io_address(VC_RPMSG_2835_FROM_VC_BELL));
+	pr_debug("%s: status 0x%x\n", __func__, status);
+	return VC_RPMSG_DOORBELL_MASK;
 }
 EXPORT_SYMBOL(vc_rpmsg_doorbell_status);
 

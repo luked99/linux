@@ -19,7 +19,25 @@
 #ifndef VC_RPMSG_MACH_H
 #define VC_RPMSG_MACH_H
 
-#define VC_RPMSG_IRQ IRQ_ARM_DOORBELL_0
+/* There are 4 doorbell interrupts. 0 and 1 signal from VC to ARM,
+ * while 2 and 3 signal from ARM to VC.
+ *
+ * VCHIQ uses doorbells 0 (VC->ARM) and 2 (ARM->VC).
+ * RPMSG uses doorbells 1 (VC->ARM) and 3 (ARM->VC).
+ *
+ * Interrupts are cleared automatically by reading from them.
+ *
+ * In theory rpmsg and vchiq could share a doorbell. However, this
+ * could potentially lead to reduced vchiq performance while doing rpmsg
+ * operations.
+ */
+
+
+/* Doorbell signalled from VC */
+#define VC_RPMSG_IRQ IRQ_ARM_DOORBELL_1
+#define VC_RPMSG_2835_FROM_VC_BELL  ARM_0_BELL1
+#define VC_RPMSG_2835_TO_VC_BELL    ARM_0_BELL3
+
 /* VC->ARM interrupt for ARM's rx vring */
 #define VC_RPMSG_IPC_DOORBELL_HOST_RX_TO_ARM    1
 /* VC->ARM interrupt for ARM's tx vring */
