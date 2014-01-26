@@ -29,6 +29,7 @@
 #include <linux/printk.h>
 #include <linux/console.h>
 #include <linux/debugfs.h>
+#include <linux/uaccess.h>
 
 #include <mach/dma.h>
 #include <mach/platform.h>
@@ -37,6 +38,7 @@
 #include <asm/sizes.h>
 #include <linux/io.h>
 #include <linux/dma-mapping.h>
+#include <uapi/linux/bcm2708_fb.h>
 
 #ifdef BCM2708_FB_DEBUG
 #define print_debug(fmt,...) pr_debug("%s:%s:%d: "fmt, MODULE_NAME, __func__, __LINE__, ##__VA_ARGS__)
@@ -69,6 +71,7 @@ struct fbinfo_s {
 struct bcm2708_fb_stats {
 	struct debugfs_regset32 regset;
 	u32 dma_copies;
+	u32 dma_fills;
 	u32 dma_irqs;
 };
 
@@ -102,6 +105,10 @@ static int bcm2708_fb_debugfs_init(struct bcm2708_fb *fb)
 		{
 			"dma_copies",
 			offsetof(struct bcm2708_fb_stats, dma_copies)
+		},
+		{
+			"dma_fills",
+			offsetof(struct bcm2708_fb_stats, dma_fills)
 		},
 		{
 			"dma_irqs",
@@ -376,11 +383,25 @@ static int bcm2708_fb_blank(int blank_mode, struct fb_info *info)
 	return -1;
 }
 
-static void bcm2708_fb_fillrect(struct fb_info *info,
-				const struct fb_fillrect *rect)
+/* Setup a DMA fill operation */
+static inline void set_dma_fill_cb(struct bcm2708_dma_cb *cb,
+				   int burst_size,
+				   dma_addr_t dst,
+				   int dst_stride,
+				   dma_addr_t src,
+				   int w,
+				   int h)
 {
-	/* (is called) print_debug("bcm2708_fb_fillrect\n"); */
-	cfb_fillrect(info, rect);
+	cb->info = BCM2708_DMA_BURST(burst_size) |
+		   BCM2708_DMA_S_WIDTH | BCM2708_DMA_D_WIDTH |
+		   BCM2708_DMA_D_INC | BCM2708_DMA_TDMODE;
+	cb->dst = dst;
+	cb->src = src;
+
+	cb->length = ((h - 1) << 16) | w;
+	cb->stride = ((dst_stride - w) << 16);
+	cb->pad[0] = 0;
+	cb->pad[1] = 0;
 }
 
 /* A helper function for configuring dma control block */
@@ -407,6 +428,87 @@ static void set_dma_cb(struct bcm2708_dma_cb *cb,
 	cb->stride = ((dst_stride - w) << 16) | (u16)(src_stride - w);
 	cb->pad[0] = 0;
 	cb->pad[1] = 0;
+}
+
+static void bcm2708_fb_fillrect(struct fb_info *info,
+				const struct fb_fillrect *rect)
+{
+	/* In theory this could be accelerated using DMA, but
+	 * would also need to fix palette handling.
+	 */
+	cfb_fillrect(info, rect);
+}
+
+/* Fill a rectangle using DMA */
+static int bcm2708_fb_dma_fillrect(struct fb_info *info,
+				    const struct bcm2708_fb_fillrect *rect)
+{
+	struct bcm2708_fb *fb = to_bcm2708(info);
+	struct bcm2708_dma_cb *cb = fb->cb_base;
+	int bytes_per_pixel = (info->var.bits_per_pixel + 7) >> 3;
+	int stride = fb->fb.fix.line_length;
+	int dx = rect->dx;
+	int dy = rect->dy;
+	int i;
+	dma_addr_t src, dst;
+	u32 *vsrc; /* virtual src addr */
+
+	int burst_size = (fb->dma_chan == 0) ? 8 : 2;
+	int w = rect->width;
+	int h = rect->height;
+	int pixels = w * h;
+
+	if (rect->width == 0 || rect->height == 0)
+		return 0;
+
+	/* Check if we like the parameters */
+	if (bytes_per_pixel > 4 ||
+		rect->rop != ROP_COPY ||
+		info->var.xres > 1920 || info->var.yres > 1200 ||
+		w <= 0 || (dx + w >= info->var.xres) ||
+		h <= 0 || (dy + h >= info->var.yres) ||
+		dx < 0 || dy < 0) {
+		return -EOPNOTSUPP;
+	}
+
+	/* Setup the source word, just after the DMA cb. We have asked for
+	 * 32 byte transfer width, so provide that much.
+	 */
+	vsrc = (u32 *)(cb+1);
+	for (i = 0; i < 8; i++)
+		vsrc[i] = rect->color;
+	src = ((u8 *)vsrc - (u8 *)cb) + fb->cb_handle;
+
+	dst = fb->fb.fix.smem_start + dy * stride + dx * bytes_per_pixel;
+
+	set_dma_fill_cb(
+		cb, burst_size,
+		dst,
+		stride,
+		src,
+		w * bytes_per_pixel,
+		rect->height);
+
+	/* end of dma control blocks chain */
+	cb->next = 0;
+
+	if (pixels < dma_busy_wait_threshold) {
+		bcm_dma_start(fb->dma_chan_base, fb->cb_handle);
+		bcm_dma_wait_idle(fb->dma_chan_base);
+	} else {
+		void __iomem *dma_chan = fb->dma_chan_base;
+		cb->info |= BCM2708_DMA_INT_EN;
+		bcm_dma_start(fb->dma_chan_base, fb->cb_handle);
+		while (bcm_dma_is_busy(dma_chan)) {
+			wait_event_interruptible(
+				fb->dma_waitq,
+				!bcm_dma_is_busy(dma_chan));
+		}
+		fb->stats.dma_irqs++;
+	}
+	fb->stats.dma_fills++;
+
+	return 0;
 }
 
 static void bcm2708_fb_copyarea(struct fb_info *info,
@@ -552,6 +654,28 @@ static irqreturn_t bcm2708_fb_dma_irq(int irq, void *cxt)
 	return IRQ_HANDLED;
 }
 
+int bcm2708_fb_ioctl(struct fb_info *info, unsigned int cmd,
+			unsigned long arg)
+{
+	int ret;
+	struct bcm2708_fb_fillrect fillrect;
+	void __user *argp = (void __user *)arg;
+	switch (cmd) {
+	case BCM2708_FB_IO_FILLRECT:
+		if (copy_from_user(&fillrect, argp, sizeof(fillrect)))
+			return -EFAULT;
+
+		ret = bcm2708_fb_dma_fillrect(info, &fillrect);
+		break;
+
+	default:
+		ret = -ENOTTY;
+		break;
+	}
+
+	return ret;
+}
+
 static struct fb_ops bcm2708_fb_ops = {
 	.owner = THIS_MODULE,
 	.fb_check_var = bcm2708_fb_check_var,
@@ -561,6 +685,7 @@ static struct fb_ops bcm2708_fb_ops = {
 	.fb_fillrect = bcm2708_fb_fillrect,
 	.fb_copyarea = bcm2708_fb_copyarea,
 	.fb_imageblit = bcm2708_fb_imageblit,
+	.fb_ioctl = bcm2708_fb_ioctl,
 };
 
 static int fbwidth = 800;	/* module parameter */
@@ -585,7 +710,8 @@ static int bcm2708_fb_register(struct bcm2708_fb *fb)
 		fb->dma = dma;
 	}
 	fb->fb.fbops = &bcm2708_fb_ops;
-	fb->fb.flags = FBINFO_FLAG_DEFAULT | FBINFO_HWACCEL_COPYAREA;
+	fb->fb.flags = FBINFO_FLAG_DEFAULT | FBINFO_HWACCEL_COPYAREA |
+			FBINFO_HWACCEL_FILLRECT;
 	fb->fb.pseudo_palette = fb->cmap;
 
 	strncpy(fb->fb.fix.id, bcm2708_name, sizeof(fb->fb.fix.id));
